@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Popcorn Hexagon - Right Triangles</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #1a1a2e; 
+            font-family: sans-serif;
+        }
+        canvas { 
+            display: block; 
+        }
+        
+        #control-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px 30px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 320px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .toggle-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 5px;
+        }
+
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
+        
+        input[type=checkbox] {
+            cursor: pointer;
+            transform: scale(1.2);
+        }
+
+        #instructions {
+            text-align: center;
+            font-size: 0.85em;
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 5px;
+            pointer-events: none;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="control-panel">
+        <div id="instructions">Click & Drag background to rotate view</div>
+        
+        <div class="control-group">
+            <label for="splitSlider">1. Main Area Split</label>
+            <input type="range" id="splitSlider" min="0" max="4" step="0.05" value="0">
+        </div>
+
+        <!-- NEW: Second slider for the right-angled splits -->
+        <div class="control-group">
+            <label for="subSplitSlider">2. Right-Angle Split (Outer Triangles)</label>
+            <input type="range" id="subSplitSlider" min="0" max="2" step="0.05" value="0">
+        </div>
+
+        <div class="toggle-group">
+            <label for="rotateToggle">Cinematic Auto-Rotate</label>
+            <input type="checkbox" id="rotateToggle" checked>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // 1. SCENE SETUP
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(15, 15, 20);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+
+        // 2. LIGHTING
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        // 3. CREATE PROCEDURAL POPCORN TEXTURE
+        function createStripeTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const context = canvas.getContext('2d');
+
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, 256, 256);
+
+            context.fillStyle = '#d32f2f'; 
+            const stripeWidth = 128; 
+            for (let i = 0; i < 256; i += stripeWidth * 2) {
+                context.fillRect(i, 0, stripeWidth, 256);
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            // texture.repeat.set(2, 1);
+            return texture;
+        }
+
+        const popcornTexture = createStripeTexture();
+
+        // 4. CALCULATE THE 6 VERTICES OF THE HEXAGON
+        const s = 4; 
+        const vertices = [];
+        for(let i = 0; i < 6; i++) {
+            const angle = i * (Math.PI / 3);
+            vertices.push(new THREE.Vector2(s * Math.cos(angle), s * Math.sin(angle)));
+        }
+
+        // Map them to easy variables
+        const v0 = vertices[0];
+        const v1 = vertices[1];
+        const v2 = vertices[2];
+        const v3 = vertices[3];
+        const v4 = vertices[4];
+        const v5 = vertices[5];
+
+        // NEW: Calculate the midpoints to split the outer triangles
+        const m1 = new THREE.Vector2((v0.x + v2.x)/2, (v0.y + v2.y)/2); // Midpoint of top outer base
+        const m2 = new THREE.Vector2((v0.x + v4.x)/2, (v0.y + v4.y)/2); // Midpoint of bottom outer base
+
+        // Calculate the "Parent Centers" so pieces move together during the main split
+        const cT1 = new THREE.Vector2((v0.x + v1.x + v2.x)/3, (v0.y + v1.y + v2.y)/3);
+        const cT2 = new THREE.Vector2((v0.x + v2.x + v3.x)/3, (v0.y + v2.y + v3.y)/3);
+        const cT3 = new THREE.Vector2((v0.x + v3.x + v4.x)/3, (v0.y + v3.y + v4.y)/3);
+        const cT4 = new THREE.Vector2((v0.x + v4.x + v5.x)/3, (v0.y + v4.y + v5.y)/3);
+
+        // Define our 6 unique triangle pieces
+        const triangleData = [
+            { pts: [v0, m1, v1], parentCenter: cT1, hasSubSplit: true },  // Top Outer Right
+            { pts: [v2, m1, v1], parentCenter: cT1, hasSubSplit: true },  // Top Outer Left
+            { pts: [v0, v2, v3], parentCenter: cT2, hasSubSplit: false }, // Top Inner
+            { pts: [v0, v3, v4], parentCenter: cT3, hasSubSplit: false }, // Bottom Inner
+            { pts: [v0, m2, v5], parentCenter: cT4, hasSubSplit: true },  // Bottom Outer Right
+            { pts: [v4, m2, v5], parentCenter: cT4, hasSubSplit: true }   // Bottom Outer Left
+        ];
+
+        // 5. ASSEMBLE THE 6 TRIANGLES
+        const prisms = [];
+        const hexGroup = new THREE.Group();
+
+        triangleData.forEach((data) => {
+            const shape = new THREE.Shape();
+            shape.moveTo(data.pts[0].x, data.pts[0].y);
+            shape.lineTo(data.pts[1].x, data.pts[1].y);
+            shape.lineTo(data.pts[2].x, data.pts[2].y);
+            shape.lineTo(data.pts[0].x, data.pts[0].y); 
+
+            const extrudeSettings = { depth: 8, bevelEnabled: false };
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.translate(0, 0, -4); 
+
+            const material = new THREE.MeshStandardMaterial({ 
+                map: popcornTexture,
+                roughness: 0.6, 
+                metalness: 0.1
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            const edges = new THREE.EdgesGeometry(geometry);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xcccccc, linewidth: 2 }));
+            mesh.add(line);
+
+            // Calculate directions for the animations
+            const parentDist = Math.sqrt(data.parentCenter.x**2 + data.parentCenter.y**2);
+            
+            // Sub-centroid is the center of this specific right-angled triangle
+            const cx = (data.pts[0].x + data.pts[1].x + data.pts[2].x) / 3;
+            const cy = (data.pts[0].y + data.pts[1].y + data.pts[2].y) / 3;
+
+            // The sub-direction pushes outward from the parent's center
+            const subVectorX = cx - data.parentCenter.x;
+            const subVectorY = cy - data.parentCenter.y;
+            const subDist = Math.sqrt(subVectorX**2 + subVectorY**2);
+
+            mesh.userData = { 
+                mainDirX: data.parentCenter.x / parentDist, 
+                mainDirY: data.parentCenter.y / parentDist,
+                hasSubSplit: data.hasSubSplit,
+                subDirX: data.hasSubSplit ? (subVectorX / subDist) : 0,
+                subDirY: data.hasSubSplit ? (subVectorY / subDist) : 0
+            };
+
+            prisms.push(mesh);
+            hexGroup.add(mesh);
+        });
+
+        hexGroup.rotation.x = -Math.PI / 2;
+        scene.add(hexGroup);
+
+        // 6. GET UI ELEMENTS
+        const splitSlider = document.getElementById('splitSlider');
+        const subSplitSlider = document.getElementById('subSplitSlider');
+        const rotateToggle = document.getElementById('rotateToggle');
+
+        // 7. ANIMATION LOOP
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const mainDist = parseFloat(splitSlider.value); 
+            const subDist = parseFloat(subSplitSlider.value); 
+
+            prisms.forEach((prism) => {
+                // Apply Main Split (grouped by parent center)
+                let finalX = prism.userData.mainDirX * mainDist;
+                let finalY = prism.userData.mainDirY * mainDist;
+
+                // Apply Sub Split (only right triangles moving apart from each other)
+                if (prism.userData.hasSubSplit) {
+                    finalX += prism.userData.subDirX * subDist;
+                    finalY += prism.userData.subDirY * subDist;
+                }
+
+                prism.position.set(finalX, finalY, 0);
+            });
+
+            if (rotateToggle.checked) {
+                hexGroup.rotation.z += 0.005;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
