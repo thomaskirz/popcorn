@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Popcorn Hexagon - Right Triangles</title>
+    <title>Hexagon - Hidden Cut Lines</title>
     <style>
         body { 
             margin: 0; 
@@ -81,7 +81,6 @@
             <input type="range" id="splitSlider" min="0" max="4" step="0.05" value="0">
         </div>
 
-        <!-- NEW: Second slider for the right-angled splits -->
         <div class="control-group">
             <label for="subSplitSlider">2. Right-Angle Split (Outer Triangles)</label>
             <input type="range" id="subSplitSlider" min="0" max="2" step="0.05" value="0">
@@ -108,39 +107,13 @@
 
         const controls = new OrbitControls(camera, renderer.domElement);
 
-        // 2. LIGHTING
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
         scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
         dirLight.position.set(10, 20, 10);
         scene.add(dirLight);
 
-        // 3. CREATE PROCEDURAL POPCORN TEXTURE
-        function createStripeTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 256;
-            const context = canvas.getContext('2d');
-
-            context.fillStyle = '#ffffff';
-            context.fillRect(0, 0, 256, 256);
-
-            context.fillStyle = '#d32f2f'; 
-            const stripeWidth = 128; 
-            for (let i = 0; i < 256; i += stripeWidth * 2) {
-                context.fillRect(i, 0, stripeWidth, 256);
-            }
-
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
-            // texture.repeat.set(2, 1);
-            return texture;
-        }
-
-        const popcornTexture = createStripeTexture();
-
-        // 4. CALCULATE THE 6 VERTICES OF THE HEXAGON
+        // 2. CALCULATE THE 6 VERTICES
         const s = 4; 
         const vertices = [];
         for(let i = 0; i < 6; i++) {
@@ -148,37 +121,64 @@
             vertices.push(new THREE.Vector2(s * Math.cos(angle), s * Math.sin(angle)));
         }
 
-        // Map them to easy variables
-        const v0 = vertices[0];
-        const v1 = vertices[1];
-        const v2 = vertices[2];
-        const v3 = vertices[3];
-        const v4 = vertices[4];
-        const v5 = vertices[5];
+        const v0 = vertices[0], v1 = vertices[1], v2 = vertices[2];
+        const v3 = vertices[3], v4 = vertices[4], v5 = vertices[5];
 
-        // NEW: Calculate the midpoints to split the outer triangles
-        const m1 = new THREE.Vector2((v0.x + v2.x)/2, (v0.y + v2.y)/2); // Midpoint of top outer base
-        const m2 = new THREE.Vector2((v0.x + v4.x)/2, (v0.y + v4.y)/2); // Midpoint of bottom outer base
+        const m1 = new THREE.Vector2((v0.x + v2.x)/2, (v0.y + v2.y)/2); 
+        const m2 = new THREE.Vector2((v0.x + v4.x)/2, (v0.y + v4.y)/2); 
 
-        // Calculate the "Parent Centers" so pieces move together during the main split
         const cT1 = new THREE.Vector2((v0.x + v1.x + v2.x)/3, (v0.y + v1.y + v2.y)/3);
         const cT2 = new THREE.Vector2((v0.x + v2.x + v3.x)/3, (v0.y + v2.y + v3.y)/3);
         const cT3 = new THREE.Vector2((v0.x + v3.x + v4.x)/3, (v0.y + v3.y + v4.y)/3);
         const cT4 = new THREE.Vector2((v0.x + v4.x + v5.x)/3, (v0.y + v4.y + v5.y)/3);
 
-        // Define our 6 unique triangle pieces
         const triangleData = [
-            { pts: [v0, m1, v1], parentCenter: cT1, hasSubSplit: true },  // Top Outer Right
-            { pts: [v2, m1, v1], parentCenter: cT1, hasSubSplit: true },  // Top Outer Left
-            { pts: [v0, v2, v3], parentCenter: cT2, hasSubSplit: false }, // Top Inner
-            { pts: [v0, v3, v4], parentCenter: cT3, hasSubSplit: false }, // Bottom Inner
-            { pts: [v0, m2, v5], parentCenter: cT4, hasSubSplit: true },  // Bottom Outer Right
-            { pts: [v4, m2, v5], parentCenter: cT4, hasSubSplit: true }   // Bottom Outer Left
+            { pts: [v0, m1, v1], parentCenter: cT1, hasSubSplit: true,  sharedColor: 0xff595e, indivColor: 0xff595e }, 
+            { pts: [v2, m1, v1], parentCenter: cT1, hasSubSplit: true,  sharedColor: 0xff595e, indivColor: 0xff924c }, 
+            { pts: [v0, v2, v3], parentCenter: cT2, hasSubSplit: false, sharedColor: null,     indivColor: 0xffca3a }, 
+            { pts: [v0, v3, v4], parentCenter: cT3, hasSubSplit: false, sharedColor: null,     indivColor: 0x8ac926 }, 
+            { pts: [v0, m2, v5], parentCenter: cT4, hasSubSplit: true,  sharedColor: 0x1982c4, indivColor: 0x1982c4 }, 
+            { pts: [v4, m2, v5], parentCenter: cT4, hasSubSplit: true,  sharedColor: 0x1982c4, indivColor: 0x6a4c93 }  
         ];
 
-        // 5. ASSEMBLE THE 6 TRIANGLES
-        const prisms = [];
+        const extrudeSettings = { depth: 8, bevelEnabled: false };
+        const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
         const hexGroup = new THREE.Group();
+
+        // 3. CREATE DYNAMIC WIREFRAMES
+
+        // A. Full Hexagon Wireframe (Visible when completely closed)
+        const hexShape = new THREE.Shape();
+        hexShape.moveTo(v0.x, v0.y);
+        [v1, v2, v3, v4, v5].forEach(v => hexShape.lineTo(v.x, v.y));
+        hexShape.lineTo(v0.x, v0.y);
+        const hexGeo = new THREE.ExtrudeGeometry(hexShape, extrudeSettings);
+        hexGeo.translate(0, 0, -4);
+        const fullHexEdges = new THREE.LineSegments(new THREE.EdgesGeometry(hexGeo), edgeMat);
+        hexGroup.add(fullHexEdges);
+
+        // B. Top Parent Triangle Wireframe (Visible during main split)
+        const topParShape = new THREE.Shape();
+        topParShape.moveTo(v0.x, v0.y); topParShape.lineTo(v2.x, v2.y); topParShape.lineTo(v1.x, v1.y); topParShape.lineTo(v0.x, v0.y);
+        const topParGeo = new THREE.ExtrudeGeometry(topParShape, extrudeSettings);
+        topParGeo.translate(0, 0, -4);
+        const topParEdges = new THREE.LineSegments(new THREE.EdgesGeometry(topParGeo), edgeMat);
+        const parentDistT1 = Math.sqrt(cT1.x**2 + cT1.y**2);
+        topParEdges.userData = { dirX: cT1.x / parentDistT1, dirY: cT1.y / parentDistT1 };
+        hexGroup.add(topParEdges);
+
+        // C. Bottom Parent Triangle Wireframe (Visible during main split)
+        const botParShape = new THREE.Shape();
+        botParShape.moveTo(v0.x, v0.y); botParShape.lineTo(v4.x, v4.y); botParShape.lineTo(v5.x, v5.y); botParShape.lineTo(v0.x, v0.y);
+        const botParGeo = new THREE.ExtrudeGeometry(botParShape, extrudeSettings);
+        botParGeo.translate(0, 0, -4);
+        const botParEdges = new THREE.LineSegments(new THREE.EdgesGeometry(botParGeo), edgeMat);
+        const parentDistT4 = Math.sqrt(cT4.x**2 + cT4.y**2);
+        botParEdges.userData = { dirX: cT4.x / parentDistT4, dirY: cT4.y / parentDistT4 };
+        hexGroup.add(botParEdges);
+
+        // 4. ASSEMBLE THE 6 SOLID TRIANGLES
+        const prisms = [];
 
         triangleData.forEach((data) => {
             const shape = new THREE.Shape();
@@ -187,39 +187,32 @@
             shape.lineTo(data.pts[2].x, data.pts[2].y);
             shape.lineTo(data.pts[0].x, data.pts[0].y); 
 
-            const extrudeSettings = { depth: 8, bevelEnabled: false };
             const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
             geometry.translate(0, 0, -4); 
 
-            const material = new THREE.MeshStandardMaterial({ 
-                map: popcornTexture,
-                roughness: 0.6, 
-                metalness: 0.1
-            });
+            const material = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.3, metalness: 0.2 });
             const mesh = new THREE.Mesh(geometry, material);
             
-            const edges = new THREE.EdgesGeometry(geometry);
-            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xcccccc, linewidth: 2 }));
+            // Generate the outline for this specific sub-piece
+            const line = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMat);
             mesh.add(line);
 
-            // Calculate directions for the animations
             const parentDist = Math.sqrt(data.parentCenter.x**2 + data.parentCenter.y**2);
-            
-            // Sub-centroid is the center of this specific right-angled triangle
             const cx = (data.pts[0].x + data.pts[1].x + data.pts[2].x) / 3;
             const cy = (data.pts[0].y + data.pts[1].y + data.pts[2].y) / 3;
-
-            // The sub-direction pushes outward from the parent's center
             const subVectorX = cx - data.parentCenter.x;
             const subVectorY = cy - data.parentCenter.y;
-            const subDist = Math.sqrt(subVectorX**2 + subVectorY**2);
+            const subVectorLength = Math.sqrt(subVectorX**2 + subVectorY**2);
 
             mesh.userData = { 
                 mainDirX: data.parentCenter.x / parentDist, 
                 mainDirY: data.parentCenter.y / parentDist,
                 hasSubSplit: data.hasSubSplit,
-                subDirX: data.hasSubSplit ? (subVectorX / subDist) : 0,
-                subDirY: data.hasSubSplit ? (subVectorY / subDist) : 0
+                subDirX: data.hasSubSplit ? (subVectorX / subVectorLength) : 0,
+                subDirY: data.hasSubSplit ? (subVectorY / subVectorLength) : 0,
+                sharedColor: data.sharedColor,
+                indivColor: data.indivColor,
+                line: line // Store reference to toggle this outline later
             };
 
             prisms.push(mesh);
@@ -229,30 +222,62 @@
         hexGroup.rotation.x = -Math.PI / 2;
         scene.add(hexGroup);
 
-        // 6. GET UI ELEMENTS
+        // 5. GET UI ELEMENTS
         const splitSlider = document.getElementById('splitSlider');
         const subSplitSlider = document.getElementById('subSplitSlider');
         const rotateToggle = document.getElementById('rotateToggle');
 
-        // 7. ANIMATION LOOP
+        // 6. ANIMATION LOOP
         function animate() {
             requestAnimationFrame(animate);
             
             const mainDist = parseFloat(splitSlider.value); 
             const subDist = parseFloat(subSplitSlider.value); 
 
+            // Wireframe Visibility States
+            const isCompletelyJoined = (mainDist === 0 && subDist === 0);
+            const isOnlyMainSplit = (mainDist > 0 && subDist === 0);
+
+            // Toggle the fake parent wireframes
+            fullHexEdges.visible = isCompletelyJoined;
+            topParEdges.visible = isOnlyMainSplit;
+            botParEdges.visible = isOnlyMainSplit;
+
+            // Move the parent wireframes alongside the hidden pieces
+            if (isOnlyMainSplit) {
+                topParEdges.position.set(topParEdges.userData.dirX * mainDist, topParEdges.userData.dirY * mainDist, 0);
+                botParEdges.position.set(botParEdges.userData.dirX * mainDist, botParEdges.userData.dirY * mainDist, 0);
+            }
+
             prisms.forEach((prism) => {
-                // Apply Main Split (grouped by parent center)
+                // Positional Logic
                 let finalX = prism.userData.mainDirX * mainDist;
                 let finalY = prism.userData.mainDirY * mainDist;
 
-                // Apply Sub Split (only right triangles moving apart from each other)
                 if (prism.userData.hasSubSplit) {
                     finalX += prism.userData.subDirX * subDist;
                     finalY += prism.userData.subDirY * subDist;
                 }
-
                 prism.position.set(finalX, finalY, 0);
+
+                // Color Logic
+                let targetHex = 0xcccccc; 
+                if (prism.userData.hasSubSplit) {
+                    if (subDist > 0) targetHex = prism.userData.indivColor; 
+                    else if (mainDist > 0) targetHex = prism.userData.sharedColor; 
+                } else {
+                    if (mainDist > 0 || subDist > 0) targetHex = prism.userData.indivColor; 
+                }
+                prism.material.color.setHex(targetHex);
+
+                // Individual Wireframe Logic
+                if (prism.userData.hasSubSplit) {
+                    // Right triangles only show their cuts if the 2nd slider is moved
+                    prism.userData.line.visible = (subDist > 0);
+                } else {
+                    // Inner triangles show their cuts as soon as the hexagon is opened
+                    prism.userData.line.visible = !isCompletelyJoined;
+                }
             });
 
             if (rotateToggle.checked) {
